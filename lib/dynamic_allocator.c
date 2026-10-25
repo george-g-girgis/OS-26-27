@@ -47,8 +47,16 @@ __inline__ uint32 get_block_size(void *va)
 {
 	//TODO: [PROJECT'26.GM#1] DYNAMIC ALLOCATOR - [1] get_block_size
 	//Your code is here
+	    if (va == NULL)
+	        return 0;
+
+	    struct BlockMetaData *block = (struct BlockMetaData *)((uint8 *)va - META_DATA_SIZE);
+
+	    return BLOCK_SIZE(block->level);
+
+
 	//Comment the following line
-	panic("get_block_size() not implemented");
+	//panic("get_block_size() not implemented");
 
 }
 //===========================
@@ -58,8 +66,86 @@ void *alloc_block(uint32 requiredSize)
 {
 	//TODO: [PROJECT'26.GM#1] DYNAMIC ALLOCATOR - [2] alloc_block
 	//Your code is here
+
+	if (requiredSize == 0 || requiredSize > DYN_ALLOC_MAX_BLOCK_SIZE - META_DATA_SIZE)
+	    return NULL;
+	
+	    uint32 totalSize = requiredSize + META_DATA_SIZE;
+
+	    uint8 desiredLevel;
+
+	    for (desiredLevel = BUDDY_LOWER_LEVEL;desiredLevel <= BUDDY_UPPER_LEVEL;desiredLevel++)
+	    {
+	        if (BLOCK_SIZE(desiredLevel) >= totalSize)
+	            break;
+	    }
+
+	    if (desiredLevel > BUDDY_UPPER_LEVEL)
+	        return NULL;
+
+	    uint8 foundLevel;
+
+	    for (foundLevel = desiredLevel;foundLevel <= BUDDY_UPPER_LEVEL;foundLevel++)
+	    {
+	        if (!LIST_EMPTY(&freeBlockLists[foundLevel]))
+	            break;
+	    }
+
+	    if (foundLevel > BUDDY_UPPER_LEVEL)
+	    {
+	        void *page = create_buddy_space();
+
+	        if (page == NULL)
+	            return NULL;
+
+	        struct BlockMetaData *left =(struct BlockMetaData *)page;
+
+	        struct BlockMetaData *right =(struct BlockMetaData *)((uint8 *)page +
+	                                     BLOCK_SIZE(BUDDY_UPPER_LEVEL));
+
+	        left->level = BUDDY_UPPER_LEVEL;
+	        left->is_free = 1;
+
+	        right->level = BUDDY_UPPER_LEVEL;
+	        right->is_free = 1;
+
+	        LIST_INSERT_HEAD(&freeBlockLists[BUDDY_UPPER_LEVEL], left);
+	        LIST_INSERT_HEAD(&freeBlockLists[BUDDY_UPPER_LEVEL], right);
+
+	        foundLevel = BUDDY_UPPER_LEVEL;
+	    }
+
+	    struct BlockMetaData *block =LIST_FIRST(&freeBlockLists[foundLevel]);
+
+	    LIST_REMOVE(&freeBlockLists[foundLevel], block);
+
+	    while (foundLevel > desiredLevel)
+	    {
+	        foundLevel--;
+
+	        struct BlockMetaData *left = block;
+
+	        struct BlockMetaData *right =(struct BlockMetaData *)((uint8 *)block +BLOCK_SIZE(foundLevel));
+
+	        left->level = foundLevel;
+	        left->is_free = 1;
+
+	        right->level = foundLevel;
+	        right->is_free = 1;
+
+	        LIST_INSERT_HEAD(&freeBlockLists[foundLevel], right);
+
+	        block = left;
+	    }
+
+
+	    block->level = desiredLevel;
+	    block->is_free = 0;
+
+	    return (void *)((uint8 *)block + META_DATA_SIZE);
+
 	//Comment the following line
-	panic("alloc_block() not implemented");
+	//panic("alloc_block() not implemented");
 }
 
 //===================================================
