@@ -271,13 +271,34 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 	{
 		if(isPageReplacmentAlgorithmFIFO())
 		{
-			//TODO: [PROJECT'26.GM#3] FAULT HANDLER I - [12] Placement
-			//Your code is here
-			//Comment the following line
-			panic("page_fault_handler().FIFO PLACEMENT is not implemented yet...!!");
-		}
-		else if(isPageReplacmentAlgorithmLRU(PG_REP_LRU_LISTS_APPROX))
-		{
+				//TODO: [PROJECT'26.GM#3] FAULT HANDLER I - [12] Placement
+				//Your code is here
+				//Comment the following line
+				//panic("page_fault_handler().FIFO PLACEMENT is not implemented yet...!!");
+				struct FrameInfo *ptr_frame_info = NULL;
+				allocate_frame(&ptr_frame_info);
+				map_frame(faulted_env->env_page_directory, ptr_frame_info, fault_va, PERM_USER | PERM_WRITEABLE);
+				int ret = pf_read_env_page(faulted_env, (void*)fault_va);
+				if (ret == E_PAGE_NOT_EXIST_IN_PF)
+				{
+					if (!((fault_va >= USTACKBOTTOM && fault_va < USTACKTOP) ||
+					      (fault_va >= USER_HEAP_START && fault_va < USER_HEAP_MAX)))
+					{
+						env_exit();
+					}
+				}
+				struct WorkingSetElement *wse = env_page_ws_list_create_element(faulted_env, fault_va);
+				LIST_INSERT_TAIL(&(faulted_env->page_WS_active_list), wse);
+				if (LIST_SIZE(&(faulted_env->page_WS_active_list)) == faulted_env->page_WS_max_size)
+				{
+					faulted_env->page_last_WS_element = LIST_FIRST(&(faulted_env->page_WS_active_list));
+				}
+				else
+				{
+					faulted_env->page_last_WS_element = NULL;
+				}
+			}
+		else if(isPageReplacmentAlgorithmLRU(PG_REP_LRU_LISTS_APPROX)) {
 			//TODO: [PROJECT'26.IM#1] FAULT HANDLER II - [2] LRU Placement
 			//Your code is here
 			//Comment the following line
