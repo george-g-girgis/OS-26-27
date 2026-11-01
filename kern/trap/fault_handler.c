@@ -268,9 +268,9 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 	uint32 activeWSSize = env_page_ws_get_size(faulted_env);
 #endif
 	if(activeWSSize + secondWSSize < (faulted_env->page_WS_max_size))
-	{
-		if(isPageReplacmentAlgorithmFIFO())
 		{
+			if(isPageReplacmentAlgorithmFIFO())
+			{
 				//TODO: [PROJECT'26.GM#3] FAULT HANDLER I - [12] Placement
 				//Your code is here
 				//Comment the following line
@@ -298,7 +298,8 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 					faulted_env->page_last_WS_element = NULL;
 				}
 			}
-		else if(isPageReplacmentAlgorithmLRU(PG_REP_LRU_LISTS_APPROX)) {
+		else if(isPageReplacmentAlgorithmLRU(PG_REP_LRU_LISTS_APPROX))
+		{
 			//TODO: [PROJECT'26.IM#1] FAULT HANDLER II - [2] LRU Placement
 			//Your code is here
 			//Comment the following line
