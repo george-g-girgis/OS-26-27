@@ -202,31 +202,79 @@ void* kmalloc(unsigned int size)
 {
 	//TODO: [PROJECT'26.GM#2] KERNEL HEAP - [6] kmalloc
 	//Your code is here
-	if (size == 0)
-		return NULL;
-	if (size <= DYN_ALLOC_MAX_BLOCK_SIZE)
-		return alloc_block(size);
-	uint32 pagesNeeded = size / PAGE_SIZE;
-	if (size % PAGE_SIZE != 0)
-		pagesNeeded++;
-	uint32 freePages = (KERNEL_HEAP_MAX - kheapPageAllocBreak) / PAGE_SIZE;
-	if (pagesNeeded > freePages)
-		return NULL;
-	uint32 va = kheapPageAllocBreak;
-	uint32 firstIndex = va_to_index(va);
-	kheapPageAllocBreak += pagesNeeded * PAGE_SIZE;
-	pageInfo[firstIndex].numPages = pagesNeeded;
-	pageInfo[firstIndex].type = PG_USED;
-	pageInfo[firstIndex].next = NO_AREA;
-	for (uint32 i = 0; i < pagesNeeded; i++)
-	{
-		uint32 pageVA = va + i * PAGE_SIZE;
-		struct FrameInfo *fi = NULL;
-		allocate_frame(&fi);
-		map_frame(ptr_page_directory, fi, pageVA, PERM_WRITEABLE);
-		kheap_record_mapping(pageVA, fi);
-	}
-	return (void*)va;
+    if (size == 0) return NULL;
+    if (size <= DYN_ALLOC_MAX_BLOCK_SIZE) return alloc_block(size);
+    uint32 pagesNeeded = size / PAGE_SIZE;
+    if (size % PAGE_SIZE != 0) pagesNeeded++;
+    uint32 selected = NO_AREA;
+    uint32 selectedPrev = NO_AREA;
+    uint32 selectedSize = 0;
+    uint32 worst = NO_AREA;
+    uint32 worstPrev = NO_AREA;
+    uint32 worstSize = 0;
+    uint32 prev = NO_AREA;
+    uint32 cur = freeHead;
+    while (cur != NO_AREA)
+    {
+    	uint32 areaPages = pageInfo[cur].numPages;
+        if (areaPages == pagesNeeded){
+            selected = cur;
+            selectedPrev = prev;
+            selectedSize = areaPages;
+            break;
+        }
+        if (areaPages > pagesNeeded && areaPages > worstSize){
+            worst = cur;
+            worstPrev = prev;
+            worstSize = areaPages;
+        }
+        prev = cur;
+        cur = pageInfo[cur].next;
+    }
+    if (selected == NO_AREA && worst != NO_AREA){
+        selected = worst;
+        selectedPrev = worstPrev;
+        selectedSize = worstSize;
+    }
+    uint32 allocIndex;
+    if (selected != NO_AREA){
+        allocIndex = selected;
+        uint32 nextFree = pageInfo[selected].next;
+        uint32 remaining = selectedSize - pagesNeeded;
+        if (remaining == 0){
+            if (selectedPrev == NO_AREA) freeHead = nextFree;
+            else
+                pageInfo[selectedPrev].next = nextFree;
+        }
+        else {
+            uint32 remainderStart = selected + pagesNeeded;
+            pageInfo[remainderStart].numPages = remaining;
+            pageInfo[remainderStart].type = PG_FREE;
+            pageInfo[remainderStart].next = nextFree;
+            if (selectedPrev == NO_AREA) freeHead = remainderStart;
+            else pageInfo[selectedPrev].next = remainderStart;}
+
+    }
+    else
+    {
+        uint32 freePages = (KERNEL_HEAP_MAX - kheapPageAllocBreak) / PAGE_SIZE;
+        if (pagesNeeded > freePages) return NULL;
+        allocIndex = va_to_index(kheapPageAllocBreak);
+        kheapPageAllocBreak += pagesNeeded * PAGE_SIZE;
+    }
+    pageInfo[allocIndex].numPages = pagesNeeded;
+    pageInfo[allocIndex].type = PG_USED;
+    pageInfo[allocIndex].next = NO_AREA;
+    uint32 va = index_to_va(allocIndex);
+    for (uint32 i = 0; i < pagesNeeded; i++)
+    {
+        uint32 pageVA = va + i * PAGE_SIZE;
+        struct FrameInfo *fi = NULL;
+        allocate_frame(&fi);
+        map_frame(ptr_page_directory, fi, pageVA, PERM_WRITEABLE);
+        kheap_record_mapping(pageVA, fi);
+    }
+    return (void*)va;
 }
 
 
@@ -234,28 +282,30 @@ void kfree(void* virtual_address)
 {
 	//TODO: [PROJECT'26.GM#2] KERNEL HEAP - [7] kfree
 	//Your code is here
-		uint32 va = (uint32)virtual_address;
-		if (va < KERNEL_HEAP_START || va >= kheapPageAllocBreak)
-			panic("kfree: invalid address");
-		uint32 pageIdx = va_to_index(ROUNDDOWN(va, PAGE_SIZE));
-		if (pageInfo[pageIdx].type == PG_BUDDY)
-		{
-			free_block(virtual_address);
-			return;
-		}
-		if (va % PAGE_SIZE != 0 || pageInfo[pageIdx].type != PG_USED)
-			panic("kfree: invalid address");
-		uint32 n = pageInfo[pageIdx].numPages;
-		for (uint32 i = 0; i < n; i++)
-		{
-			uint32 pageVA = index_to_va(pageIdx + i);
-			uint32 *ptr_table = NULL;
-			struct FrameInfo *fi = get_frame_info(ptr_page_directory, pageVA, &ptr_table);
-			if (fi != NULL)
-				kheap_clear_mapping(fi);
-			unmap_frame(ptr_page_directory, pageVA);
-		}
-		add_free_area(pageIdx, n);
+    uint32 va = (uint32)virtual_address;
+    if (va < KERNEL_HEAP_START || va >= kheapPageAllocBreak) panic("kfree: invalid address");
+    // Check if the address belongs to a Buddy page
+    for (int i = 0; i < count; i++)
+    {
+        if (va >= pages[i] && va < pages[i] + PAGE_SIZE)
+        {
+            free_block(virtual_address);
+            return;
+        }
+    }
+
+    uint32 pageIdx = va_to_index(ROUNDDOWN(va, PAGE_SIZE));
+    if (va % PAGE_SIZE != 0 || pageInfo[pageIdx].type != PG_USED) panic("kfree: invalid address");
+    uint32 n = pageInfo[pageIdx].numPages;
+    for (uint32 i = 0; i < n; i++)
+    {
+        uint32 pageVA = index_to_va(pageIdx + i);
+        uint32 *ptr_table = NULL;
+        struct FrameInfo *fi = get_frame_info(ptr_page_directory, pageVA, &ptr_table);
+        if (fi != NULL)  kheap_clear_mapping(fi);
+        unmap_frame(ptr_page_directory, pageVA);
+    }
+    add_free_area(pageIdx, n);
 }
 
 
@@ -266,8 +316,7 @@ unsigned int kheap_physical_address(unsigned int virtual_address)
 	//Your code is here
 	uint32 *ptr_table = NULL;
 	struct FrameInfo *fi = get_frame_info(ptr_page_directory, virtual_address, &ptr_table);
-	if (fi == NULL)
-		return 0;
+	if (fi == NULL) return 0;
 	return to_physical_address(fi) + PGOFF(virtual_address);
 }
 
@@ -276,11 +325,9 @@ unsigned int kheap_virtual_address(unsigned int physical_address)
 	//TODO: [PROJECT'26.GM#2] KERNEL HEAP - [9] kheap_virtual_address
 	//Your code is here
 	uint32 ppn = PPN(physical_address);
-	if (ppn >= number_of_frames || ppn >= KHEAP_MAX_FRAMES)
-		return 0;
+	if (ppn >= number_of_frames || ppn >= KHEAP_MAX_FRAMES) return 0;
 	uint32 va = frameToVA[ppn];
-	if (va == 0)
-		return 0;
+	if (va == 0) return 0;
 	return va + PGOFF(physical_address);
 }
 
